@@ -16,6 +16,31 @@ interface BuilderChatProps {
   onClose: () => void;
 }
 
+// Privacy-preserving analytics - sends metadata only, not content
+async function trackChatAnalytics(eventType: string, metadata: Record<string, any>) {
+  try {
+    const API_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
+    await fetch(`${API_URL}/api/chat-analytics`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        eventType,
+        timestamp: new Date().toISOString(),
+        // Only metadata - NO message content for privacy
+        metadata: {
+          ...metadata,
+          // Scrub any content that might leak
+          messageContent: undefined,
+          content: undefined,
+        }
+      }),
+    });
+  } catch (error) {
+    // Silent fail - don't break UX for analytics
+    console.debug('Analytics tracking failed:', error);
+  }
+}
+
 export function BuilderChat({ 
   userId, 
   tasksCompleted, 
@@ -29,6 +54,10 @@ export function BuilderChat({
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
+  // Session tracking for analytics
+  const sessionStartRef = useRef<Date>(new Date());
+  const messageCountRef = useRef<number>(0);
+  
   const { chat, getChatHistory, clearChatHistory, isLoading } = useShadeAgent();
   const { 
     isListening, 
@@ -38,6 +67,28 @@ export function BuilderChat({
     stopListening 
   } = useVoiceInput();
 
+  // Track session start
+  useEffect(() => {
+    sessionStartRef.current = new Date();
+    trackChatAnalytics('session_started', {
+      userId,
+      currentEnergy,
+      tasksCompleted,
+      streakDays,
+    });
+
+    // Track session end on unmount
+    return () => {
+      const sessionDuration = Date.now() - sessionStartRef.current.getTime();
+      trackChatAnalytics('session_ended', {
+        userId,
+        sessionDurationMs: sessionDuration,
+        messageCount: messageCountRef.current,
+        currentEnergy,
+      });
+    };
+  }, []);
+
   // Update input when voice transcript changes
   useEffect(() => {
     if (transcript) {
@@ -45,33 +96,39 @@ export function BuilderChat({
     }
   }, [transcript]);
 
-  // Auto-scroll (optimized - only when messages change)
+  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]); // Only re-run when length changes
+  }, [messages.length]);
 
-  // Load conversation history on mount (runs once)
+  // Load conversation history on mount
   useEffect(() => {
     let mounted = true;
 
     async function loadHistory() {
       setIsLoadingHistory(true);
+      const loadStartTime = Date.now();
       
       try {
         const history = await getChatHistory(userId);
         
-        if (!mounted) return; // Component unmounted, don't update state
+        if (!mounted) return;
         
         if (history && history.length > 0) {
-          // Convert historical messages to Message format
           const loadedMessages = history.map((msg: any) => ({
             role: msg.role as 'user' | 'assistant',
             content: msg.content,
             timestamp: new Date(msg.timestamp),
           }));
           setMessages(loadedMessages);
+          
+          // Track history loaded - metadata only
+          trackChatAnalytics('history_loaded', {
+            userId,
+            messageCount: history.length, // Count only, no content
+            loadTimeMs: Date.now() - loadStartTime,
+          });
         } else {
-          // No history, show greeting
           const hour = new Date().getHours();
           const greeting = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
           
@@ -80,10 +137,14 @@ export function BuilderChat({
             content: `Good ${greeting}! 👋 How's your building going today?`,
             timestamp: new Date(),
           }]);
+          
+          trackChatAnalytics('new_session', {
+            userId,
+            timeOfDay: greeting,
+          });
         }
       } catch (error) {
         console.error('Failed to load chat history:', error);
-        // Show greeting on error
         const hour = new Date().getHours();
         const greeting = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
         
@@ -92,6 +153,11 @@ export function BuilderChat({
           content: `Good ${greeting}! 👋 How's your building going today?`,
           timestamp: new Date(),
         }]);
+        
+        trackChatAnalytics('history_load_error', {
+          userId,
+          errorType: 'load_failed',
+        });
       } finally {
         if (mounted) {
           setIsLoadingHistory(false);
@@ -101,14 +167,16 @@ export function BuilderChat({
 
     loadHistory();
 
-    // Cleanup function
     return () => {
       mounted = false;
     };
-  }, []); // Empty deps - only run once on mount
+  }, []);
 
   const sendMessage = useCallback(async () => {
     if (!input.trim() || isLoading) return;
+
+    const messageStartTime = Date.now();
+    const usedVoice = isListening;
 
     const userMsg: Message = {
       role: 'user',
@@ -117,14 +185,23 @@ export function BuilderChat({
     };
 
     setMessages(prev => [...prev, userMsg]);
-    const messageToSend = input; // Capture before clearing
+    const messageToSend = input;
     setInput('');
     setIsTyping(true);
+    messageCountRef.current++;
 
-    // Stop listening if voice was active
     if (isListening) {
       stopListening();
     }
+
+    // Track message sent - PRIVACY: only length, not content
+    trackChatAnalytics('message_sent', {
+      userId,
+      messageLength: messageToSend.length, // Length only, no content!
+      usedVoice,
+      currentEnergy,
+      messageNumber: messageCountRef.current,
+    });
 
     try {
       const response = await chat({
@@ -143,15 +220,30 @@ export function BuilderChat({
           content: response.reply,
           timestamp: new Date(),
         }]);
+
+        // Track response received - PRIVACY: timing & length only
+        trackChatAnalytics('response_received', {
+          userId,
+          responseTimeMs: Date.now() - messageStartTime,
+          responseLength: response.reply.length, // Length only!
+          qualityScore: response.meta?.qualityScore, // From server evaluation
+          crisisDetected: response.meta?.crisisSupport, // Safety flag only
+        });
       }
     } catch (error) {
       console.error('Chat error:', error);
-      // Show error message to user
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: 'Sorry, I had trouble responding. Please try again.',
         timestamp: new Date(),
       }]);
+      
+      // Track error - no content
+      trackChatAnalytics('message_error', {
+        userId,
+        responseTimeMs: Date.now() - messageStartTime,
+        errorType: 'chat_failed',
+      });
     } finally {
       setIsTyping(false);
     }
@@ -160,14 +252,18 @@ export function BuilderChat({
   const handleVoiceToggle = useCallback(() => {
     if (isListening) {
       stopListening();
+      trackChatAnalytics('voice_stopped', { userId });
     } else {
       startListening();
+      trackChatAnalytics('voice_started', { userId });
     }
-  }, [isListening, startListening, stopListening]);
+  }, [isListening, startListening, stopListening, userId]);
 
   const handleClearHistory = useCallback(async () => {
     if (confirm('Clear all conversation history? This cannot be undone.')) {
+      const messageCount = messages.length;
       await clearChatHistory(userId);
+      
       const hour = new Date().getHours();
       const greeting = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
       setMessages([{
@@ -175,15 +271,33 @@ export function BuilderChat({
         content: `Good ${greeting}! 👋 Starting fresh. How's your building going?`,
         timestamp: new Date(),
       }]);
+      
+      // Track clear - count only
+      trackChatAnalytics('history_cleared', {
+        userId,
+        previousMessageCount: messageCount,
+      });
     }
-  }, [userId, clearChatHistory]);
+  }, [userId, clearChatHistory, messages.length]);
 
   const quickActions = [
-    { text: "feeling burnt out tbh", emoji: "😓" },
-    { text: "in flow state rn!", emoji: "⚡" },
-    { text: "stuck on this bug", emoji: "🐛" },
-    { text: "shipped it!", emoji: "🚀" },
+    { text: "feeling burnt out tbh", emoji: "😓", category: "burnout" },
+    { text: "in flow state rn!", emoji: "⚡", category: "positive" },
+    { text: "stuck on this bug", emoji: "🐛", category: "stuck" },
+    { text: "shipped it!", emoji: "🚀", category: "achievement" },
   ];
+
+  const handleQuickAction = useCallback((action: typeof quickActions[0]) => {
+    // Track quick action - category only, not exact text
+    trackChatAnalytics('quick_action_used', {
+      userId,
+      actionCategory: action.category, // Category, not exact content
+      currentEnergy,
+    });
+    
+    setInput(action.text);
+    setTimeout(() => sendMessage(), 100);
+  }, [userId, currentEnergy, sendMessage]);
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">
@@ -202,12 +316,11 @@ export function BuilderChat({
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-full w-full bg-green-500"></span>
                 </span>
-                <span className="text-xs">Private AI in TEE</span>
+                <span className="text-xs">Private AI in TEE 🔒</span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Clear history button */}
             <button
               onClick={handleClearHistory}
               className="text-gray-400 hover:text-red-400 text-sm p-2"
@@ -280,10 +393,7 @@ export function BuilderChat({
           {quickActions.map((action, i) => (
             <button
               key={i}
-              onClick={() => {
-                setInput(action.text);
-                setTimeout(() => sendMessage(), 100);
-              }}
+              onClick={() => handleQuickAction(action)}
               disabled={isLoading}
               className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-xs text-gray-300 transition-all whitespace-nowrap flex-shrink-0 disabled:opacity-50"
             >
@@ -294,7 +404,6 @@ export function BuilderChat({
 
         {/* Input Area with Voice */}
         <div className="p-3 md:p-4 border-t border-gray-700 flex-shrink-0">
-          {/* Voice listening indicator */}
           {isListening && (
             <div className="mb-2 flex items-center gap-2 text-xs text-cyan-400">
               <span className="relative flex h-2 w-2">
@@ -321,7 +430,6 @@ export function BuilderChat({
               disabled={isLoading || isListening}
             />
             
-            {/* Voice Button */}
             {voiceSupported && (
               <button
                 onClick={handleVoiceToggle}
@@ -336,7 +444,6 @@ export function BuilderChat({
               </button>
             )}
 
-            {/* Send Button */}
             <button
               onClick={sendMessage}
               disabled={!input.trim() || isLoading}
