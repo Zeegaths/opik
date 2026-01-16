@@ -1,0 +1,32 @@
+{
+  "accountAssociation": {
+    "header": "eyJmaWQiOjg1OTI5MCwidHlwZSI6ImF1dGgiLCJrZXkiOiIweDhmNWM4ODE5MUI1MUEzRDYzNUQ0QzE2QjdlNGFlMjY0MzdCYTc3NGQifQ",
+    "payload": "eyJkb21haW4iOiJidWlsZGVydXB0aW1lLnh5eiJ9",
+    "signature": "l1hNKTSMbMlDc/8opzPhOeGf1Xcdm8HSaeZcG8UeCmYBPCIk1uRfKEJoWqw1KJuu/CjtRnD6L97UrZGpHdk9Hxs="
+  },
+  "baseBuilder": {
+    "allowedAddresses": ["0xb7C7eD6F27a32c7e8B1e2BB72175c5Bcabef501d"]
+  },
+  "miniapp": {
+    "version": "1",
+    "name": "Builder Uptime",
+    "homeUrl": "https://builderuptime.xyz",
+    "iconUrl": "https://builderuptime.xyz/logo.png",
+    "splashImageUrl": "https://builderuptime.xyz/uptime.png",
+    "splashBackgroundColor": "#000000",
+    "subtitle": "Monitor your services",
+    "description": "Track uptime and performance of your services in real-time.",
+    "screenshotUrls": [
+      "https://builderuptime.xyz/screenshot1.png",
+      "https://builderuptime.xyz/screenshot2.png"
+    ],
+    "primaryCategory": "productivity",
+    "tags": ["uptime", "monitoring", "developer-tools"],
+    "heroImageUrl": "https://builderuptime.xyz/uptime.png",
+    "tagline": "Stay online, always",
+    "ogTitle": "Builder Uptime",
+    "ogDescription": "Monitor your services in real-time",
+    "ogImageUrl": "https://builderuptime.xyz/uptime.png",
+    "noindex": false
+  }
+}
