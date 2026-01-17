@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Builder Uptime</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 360px;
+      min-height: 480px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: 24px;
+      padding: 32px;
+      width: 100%;
+      max-width: 320px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      text-align: center;
+    }
+
+    .logo {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 24px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      font-weight: bold;
+      color: white;
+      box-shadow: 0 8px 16px rgba(102, 126, 234, 0.4);
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: #1a202c;
+      margin-bottom: 8px;
+    }
+
+    p {
+      font-size: 14px;
+      color: #718096;
+      margin-bottom: 32px;
+      line-height: 1.6;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .stat {
+      background: #f7fafc;
+      padding: 12px;
+      border-radius: 12px;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #667eea;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #718096;
+      margin-top: 4px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 16px;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin-bottom: 12px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+    }
+
+    .btn-secondary {
+      background: #f7fafc;
+      color: #4a5568;
+    }
+
+    .btn-secondary:hover {
+      background: #edf2f7;
+    }
+
+    .divider {
+      height: 1px;
+      background: #e2e8f0;
+      margin: 20px 0;
+    }
+
+    .quick-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .quick-action {
+      flex: 1;
+      padding: 10px;
+      background: #f7fafc;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #4a5568;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .quick-action:hover {
+      background: #edf2f7;
+      transform: scale(1.05);
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: #c6f6d5;
+      color: #22543d;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background: #38a169;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">BU</div>
+    
+    <div class="status">
+      <span class="status-dot"></span>
+      <span id="status-text">Tracking Active</span>
+    </div>
+
+    <h1>Builder Uptime</h1>
+    <p>Track your productivity and prevent burnout with AI-powered wellness insights</p>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-value" id="tasks-today">0</div>
+        <div class="stat-label">Tasks Today</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="focus-time">0h</div>
+        <div class="stat-label">Focus Time</div>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="open-app">
+      Open Dashboard
+    </button>
+
+    <button class="btn btn-secondary" id="quick-checkin">
+      Quick Check-in
+    </button>
+
+    <div class="divider"></div>
+
+    <div class="quick-actions">
+      <button class="quick-action" id="view-stats">📊 Stats</button>
+      <button class="quick-action" id="settings">⚙️ Settings</button>
+      <button class="quick-action" id="help">❓ Help</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
