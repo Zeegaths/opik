@@ -6,15 +6,11 @@
   "permissions": [
     "storage",
     "alarms",
-    "notifications"
-  ],
-  "host_permissions": [
-    "https://scintillating-grace-production.up.railway.app/*",
-    "https://auth.privy.io/*",
-    "https://*.comet.com/*"
+    "notifications",
+    "tabs",
+    "idle"
   ],
   "action": {
-    "default_popup": "index.html",
     "default_icon": {
       "16": "icon-16.png",
       "48": "icon-48.png",
@@ -28,8 +24,5 @@
   },
   "background": {
     "service_worker": "background.js"
-  },
-  "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   }
 }
