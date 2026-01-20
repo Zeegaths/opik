@@ -2,7 +2,7 @@
 
 **AI-powered productivity agent, now delivered as a Chrome Extension.** Track tasks, get real-time insights, and monitor agent reasoning via Opik.
 
-**🧩 Chrome Extension** • **📊 Opik Observability** • Deployed on **Monad Testnet**
+**🧩 Chrome Extension** • **📊 Opik Observability** 
 
 ---
 
@@ -26,7 +26,6 @@
 **Web3 Integration:**
 - 🔐 **Smart Accounts:** Powered by MetaMask Delegation Toolkit (ERC-4337).
 - 🔗 **Privy Auth:** Secure, frictionless wallet-based login.
-- ⛓️ **Monad Testnet:** On-chain timestamping and proof-of-work achievements.
 
 ---
 
@@ -35,7 +34,6 @@
 **Frontend:** React, TypeScript, TailwindCSS  
 **Observability:** [Opik SDK](https://www.comet.com/opik) (Trace logging & evaluation)  
 **AI:** Coinbase Agent Kit, Shade Agent  
-**Blockchain:** Monad Testnet, MetaMask Delegation Toolkit  
 **Auth:** Privy  
 **Extension:** Manifest V3  
 
