@@ -55,8 +55,8 @@ To ensure security, Opik keys are handled server-side to prevent exposure in the
 ```env
 # Server-side (Railway/Backend)
 OPIK_API_KEY="fdSM4..." # Your Opik API Key
-OPIK_WORKSPACE="gathoni" # Your Opik Workspace
+OPIK_WORKSPACE="" # Your Opik Workspace
 
 # Client-side (Extension)
 VITE_PRIVY_APP_ID="your-app-id"
-VITE_SHADE_AGENT_URL="[https://scintillating-grace-production.up.railway.app](https://scintillating-grace-production.up.railway.app)"
+VITE_SHADE_AGENT_URL="()"
