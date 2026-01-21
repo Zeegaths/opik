@@ -1,8 +1,9 @@
-// server.js - Using Opik REST API (no SDK needed!)
+// server.js - COMPLETE VERSION with OpenAI + Opik
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const https = require('https');
+const { Opik } = require('opik');
+const OpenAI = require('openai');
 
 const app = express();
 app.use(cors());
@@ -10,58 +11,15 @@ app.use(express.json());
 
 console.log('🚀 Builder Uptime Server starting...');
 
-// Opik REST API Configuration
-const OPIK_API_KEY = process.env.OPIK_API_KEY;
-const OPIK_WORKSPACE = 'gathoni';
+// Initialize Opik SDK
+const opikClient = new Opik({
+  projectName: 'builder-uptime'
+});
 
-async function logToOpik(traceName, input, output, metadata = {}) {
-  if (!OPIK_API_KEY) return;
-
-  const trace = {
-    id: `trace_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    project_name: 'builder-uptime',
-    name: traceName,
-    start_time: new Date().toISOString(),
-    end_time: new Date().toISOString(),
-    input: input,
-    output: output,
-    metadata: { workspace: OPIK_WORKSPACE, ...metadata }
-  };
-
-  const data = JSON.stringify({ traces: [trace] });
-  const options = {
-    hostname: 'www.comet.com',
-    port: 443,
-    path: '/opik/api/v1/private/traces',
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': data.length,
-      'Authorization': `Bearer ${OPIK_API_KEY}`
-    }
-  };
-
-  return new Promise((resolve) => {
-    const req = https.request(options, (res) => {
-      let body = '';
-      res.on('data', (chunk) => body += chunk);
-      res.on('end', () => {
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          console.log(`✅ Opik: ${traceName}`);
-        } else {
-          console.log(`⚠️  Opik failed (${res.statusCode})`);
-        }
-        resolve();
-      });
-    });
-    req.on('error', (e) => {
-      console.error('⚠️  Opik error:', e.message);
-      resolve();
-    });
-    req.write(data);
-    req.end();
-  });
-}
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 // In-memory storage
 const wellnessData = {};
@@ -73,7 +31,8 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    opikEnabled: !!OPIK_API_KEY
+    opikEnabled: true,
+    openaiEnabled: !!process.env.OPENAI_API_KEY
   });
 });
 
@@ -102,11 +61,16 @@ app.post('/api/log-wellness', async (req, res) => {
       burnoutRisk
     });
 
-    // Log to Opik via REST API
-    await logToOpik('wellness_intervention', 
-      { energyLevel, focusQuality, userId, taskId },
-      { burnoutRisk, recommendation }
-    );
+    // Log to Opik
+    const trace = opikClient.trace({
+      name: 'wellness_intervention',
+      input: { energyLevel, focusQuality, userId, taskId },
+      output: { burnoutRisk, recommendation },
+      metadata: { userId, taskId }
+    });
+    trace.end();
+
+    console.log(`✅ Opik: wellness_intervention logged`);
 
     res.json({ success: true, burnoutRisk, recommendation });
   } catch (error) {
@@ -140,18 +104,51 @@ app.post('/api/chat', async (req, res) => {
   const { userId, message, context } = req.body;
 
   try {
-    // Simple wellness-focused responses
-    let response = "I'm here to support you. ";
+    // Get chat history for context
+    const history = chatHistory[userId] || [];
     
-    if (context?.currentEnergy <= 3) {
-      response += "I notice your energy is low. What would help you recharge right now?";
-    } else if (message.toLowerCase().includes('stress') || message.toLowerCase().includes('overwhelm')) {
-      response += "It sounds like things are intense. Remember: sustainable building means taking breaks. What's one small thing you can do for yourself right now?";
-    } else if (message.toLowerCase().includes('tired') || message.toLowerCase().includes('exhausted')) {
-      response += "Fatigue is real. Your work will be there after you rest. Can you take 15 minutes to step away?";
-    } else {
-      response += "I'm listening. How are you really doing?";
-    }
+    // Build system prompt with user context
+    const systemPrompt = `You are Builder Buddy, an empathetic AI coach for startup founders and builders. You help them:
+- Maintain sustainable work habits and avoid burnout
+- Process feelings about their work
+- Make decisions about taking breaks
+- Stay motivated through challenges
+
+Current user context:
+- Energy level: ${context?.currentEnergy || 3}/5
+- Tasks completed: ${context?.tasksCompleted || 0}
+- Streak: ${context?.streakDays || 0} days
+
+Be warm, supportive, and direct. Keep responses concise (2-3 sentences max). If energy is low (≤2), strongly encourage a break.`;
+
+    // Convert chat history to OpenAI format
+    const messages = [
+      { role: 'system', content: systemPrompt }
+    ];
+    
+    // Add last 10 messages for context
+    history.slice(-10).forEach(msg => {
+      messages.push({
+        role: msg.role,
+        content: msg.content
+      });
+    });
+    
+    // Add current message
+    messages.push({
+      role: 'user',
+      content: message
+    });
+
+    // Call OpenAI API
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: messages,
+      max_tokens: 200,
+      temperature: 0.7,
+    });
+
+    const response = completion.choices[0].message.content;
 
     // Store chat history
     if (!chatHistory[userId]) chatHistory[userId] = [];
@@ -160,11 +157,21 @@ app.post('/api/chat', async (req, res) => {
       { role: 'assistant', content: response, timestamp: new Date().toISOString() }
     );
 
+    // Keep only last 50 messages
+    if (chatHistory[userId].length > 50) {
+      chatHistory[userId] = chatHistory[userId].slice(-50);
+    }
+
     // Log to Opik
-    await logToOpik('shade_agent_chat',
-      { message, context },
-      { response }
-    );
+    const trace = opikClient.trace({
+      name: 'shade_agent_chat',
+      input: { message, context, historyLength: history.length },
+      output: { response, model: 'gpt-4o-mini' },
+      metadata: { userId, energy: context?.currentEnergy }
+    });
+    trace.end();
+
+    console.log(`✅ Opik: shade_agent_chat logged`);
 
     res.json({ message: response });
   } catch (error) {
@@ -189,16 +196,81 @@ app.post('/api/chat-analytics', async (req, res) => {
   const { userId, eventType, sessionDuration, messageCount, currentEnergy, metadata } = req.body;
   
   try {
-    await logToOpik('chat_analytics',
-      { userId, eventType, sessionDuration, messageCount, currentEnergy },
-      { tracked: true },
-      metadata
-    );
+    const trace = opikClient.trace({
+      name: 'chat_analytics',
+      input: { userId, eventType, sessionDuration, messageCount, currentEnergy },
+      output: { tracked: true },
+      metadata: { ...metadata, userId }
+    });
+    trace.end();
+
+    console.log(`✅ Opik: chat_analytics logged`);
     
     res.json({ success: true });
   } catch (error) {
     console.error("Chat analytics error:", error);
     res.status(500).json({ error: "Failed to track analytics" });
+  }
+});
+
+// ====== UPTIME ANALYSIS ENDPOINT ======
+app.post('/api/analyze-uptime', async (req, res) => {
+  const { userId, uptime, energy, tasks, focusMinutes, blockers } = req.body;
+
+  try {
+    const userData = wellnessData[userId] || [];
+    const recentSessions = userData.slice(-7); // Last 7 sessions
+    
+    const analysisPrompt = `Analyze this builder's productivity and provide actionable insights:
+
+Current Session:
+- Uptime Score: ${uptime}%
+- Energy Level: ${energy}/5
+- Tasks Completed: ${tasks.filter(t => t.completed).length}/${tasks.length}
+- Focus Time: ${focusMinutes} minutes
+- Active Blockers: ${blockers}
+
+Recent Wellness Trend (last 7 sessions):
+${recentSessions.length > 0 ? recentSessions.map(s => `- Energy: ${s.energyLevel}/5, Risk: ${s.burnoutRisk}`).join('\n') : '- No recent data'}
+
+Provide:
+1. One specific suggestion (max 2 sentences)
+2. Brief reasoning (max 1 sentence)
+3. Should they take a break? (yes/no)
+
+Format as JSON: {"suggestion": "...", "reasoning": "...", "needsBreak": true/false}`;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { 
+          role: 'system', 
+          content: 'You are an AI productivity analyst. Provide concise, actionable insights. Always respond with valid JSON.' 
+        },
+        { role: 'user', content: analysisPrompt }
+      ],
+      max_tokens: 150,
+      temperature: 0.3,
+      response_format: { type: "json_object" }
+    });
+
+    const analysis = JSON.parse(completion.choices[0].message.content);
+
+    // Log to Opik
+    const trace = opikClient.trace({
+      name: 'uptime_analysis',
+      input: { userId, uptime, energy, taskCount: tasks.length, focusMinutes },
+      output: { analysis, model: 'gpt-4o-mini' },
+      metadata: { userId, burnoutRisk: recentSessions[recentSessions.length - 1]?.burnoutRisk || 'UNKNOWN' }
+    });
+    trace.end();
+
+    console.log(`✅ Opik: uptime_analysis logged`);
+
+    res.json({ analysis });
+  } catch (error) {
+    console.error("Analysis error:", error);
+    res.status(500).json({ error: "Failed to analyze uptime" });
   }
 });
 
@@ -220,6 +292,7 @@ app.post('/api/uptime/tasks', async (req, res) => {
       description,
       priority: priority || 'medium',
       completed: false,
+      hasBlocker: false,
       createdAt: new Date().toISOString()
     };
 
@@ -227,10 +300,15 @@ app.post('/api/uptime/tasks', async (req, res) => {
     tasks[userId].push(task);
 
     // Log to Opik
-    await logToOpik('task_created',
-      { userId, title, priority },
-      { taskId: task.id }
-    );
+    const trace = opikClient.trace({
+      name: 'task_created',
+      input: { userId, title, priority },
+      output: { taskId: task.id },
+      metadata: { userId }
+    });
+    trace.end();
+
+    console.log(`✅ Opik: task_created logged`);
 
     res.json({ task });
   } catch (error) {
@@ -241,7 +319,7 @@ app.post('/api/uptime/tasks', async (req, res) => {
 
 app.put('/api/uptime/tasks/:id', async (req, res) => {
   const { id } = req.params;
-  const { userId, completed, title, description, priority } = req.body;
+  const { userId, completed, title, description, priority, hasBlocker } = req.body;
   
   try {
     if (!tasks[userId]) {
@@ -253,14 +331,19 @@ app.put('/api/uptime/tasks/:id', async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
+    console.log(`📝 Updating task ${id}:`, { completed, title, hasBlocker });
+
     tasks[userId][taskIndex] = {
       ...tasks[userId][taskIndex],
       ...(completed !== undefined && { completed }),
+      ...(hasBlocker !== undefined && { hasBlocker }),
       ...(title && { title }),
       ...(description && { description }),
       ...(priority && { priority }),
       updatedAt: new Date().toISOString()
     };
+
+    console.log(`✅ Task ${id} updated:`, tasks[userId][taskIndex]);
 
     res.json({ task: tasks[userId][taskIndex] });
   } catch (error) {
@@ -292,8 +375,17 @@ app.delete('/api/uptime/tasks/:id', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('Flushing Opik traces...');
+  await opikClient.flush();
+  process.exit(0);
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Builder Uptime Server running on port ${PORT}`);
-  console.log(`📊 Opik tracking: ${OPIK_API_KEY ? 'ENABLED ✅' : 'disabled'}`);
+  console.log(`📊 Opik SDK: ENABLED ✅`);
+  console.log(`🤖 OpenAI: ${process.env.OPENAI_API_KEY ? 'ENABLED ✅' : 'DISABLED ⚠️'}`);
   console.log(`🌐 Health check: http://localhost:${PORT}/health`);
 });

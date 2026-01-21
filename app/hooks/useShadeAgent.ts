@@ -36,7 +36,7 @@ export function useShadeAgent() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${SHADE_AGENT_URL}/api/log-wellness`, {
+      const response = await fetch(`${SHADE_AGENT_URL}/log-wellness`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -62,7 +62,7 @@ export function useShadeAgent() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${SHADE_AGENT_URL}/api/chat`, {
+      const response = await fetch(`${SHADE_AGENT_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -88,7 +88,7 @@ export function useShadeAgent() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${SHADE_AGENT_URL}/api/chat-history`, {
+      const response = await fetch(`${SHADE_AGENT_URL}/chat-history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),
@@ -114,7 +114,7 @@ export function useShadeAgent() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${SHADE_AGENT_URL}/api/clear-chat`, {
+      const response = await fetch(`${SHADE_AGENT_URL}/clear-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),
@@ -140,7 +140,7 @@ export function useShadeAgent() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${SHADE_AGENT_URL}/api/weekly-insights`, {
+      const response = await fetch(`${SHADE_AGENT_URL}/weekly-insights`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),

@@ -7,6 +7,8 @@ import useMetaMaskSmartAccount from '../hooks/useMetamaskSmartAccount';
 import { usePersistentTasks, useAutoSaveSession } from '~/hooks/usePersistentTasks';
 import { OpikTracer } from '~/hooks/opik-provider';
 import { useExtensionNotifications } from '~/hooks/useExtensionNotifications';
+// import { useUptimeAnalysis } from '~/hooks/useUptimeAnalysis';
+// const { analyzeUptime, isAnalyzing } = useUptimeAnalysis();
 
 // Define Task interface
 interface Task {
@@ -77,7 +79,7 @@ export default function MinimalBuilderUptime() {
   const { logWellness, isLoading: agentLoading } = useShadeAgent();
   const { sendNotification } = useExtensionNotifications();
 
-   useEffect(() => {
+  useEffect(() => {
     if (energy <= 2) {
       sendNotification(
         '🚨 Low Energy Detected',
@@ -117,23 +119,45 @@ export default function MinimalBuilderUptime() {
   }, [isTimerRunning]);
 
 
-  const recordWellness = async (energyValue: number) => {
-    try {
-      await fetch("/api/opik", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "wellness_check",
-          input: { energy_slider: energyValue },
-          output: { status: "Agent Analyzed" }
-        }),
-      });
-      console.log("✅ Trace sent to Opik bridge");
-    } catch (err) {
-      console.error("❌ Opik bridge failed", err);
+  // Add this new handler
+  const handleEnergyChange = async (newEnergy: number) => {
+    setEnergy(newEnergy);
+
+    // Log to backend which forwards to Opik
+    if (authenticated && user?.id) {
+      try {
+        const focusQuality = Math.min(5, Math.max(1, Math.round((focusSeconds / 1800) + 1) || 3));
+
+        await logWellness({
+          userId: user.id,
+          energyLevel: newEnergy,
+          focusQuality: focusQuality,
+          taskId: tasks[0]?.id?.toString() || 'current_session'
+        });
+
+        console.log("✅ Wellness logged to Opik via backend");
+      } catch (err) {
+        console.error("❌ Failed to log wellness", err);
+      }
     }
   };
 
+  const handleAnalyzeUptime = async () => {
+    if (!authenticated || !user?.id) return;
+
+    const analysis = await analyzeUptime(
+      user.id,
+      uptime,
+      energy,
+      tasks,
+      Math.floor(focusSeconds / 60)
+    );
+
+    if (analysis) {
+      setAnalysis(analysis);
+      setShowAIInsight(true);
+    }
+  };
   // Task functions
   const handleAddTask = async (): Promise<void> => {
     if (taskInput.trim()) {
@@ -631,6 +655,7 @@ export default function MinimalBuilderUptime() {
                   <p className="text-gray-400 text-sm md:text-base px-4 hidden md:block">
                     Tasks · Energy · Focus · Sustainable Pace
                   </p>
+
                 </div>
               </div>
             </section>
@@ -654,7 +679,7 @@ export default function MinimalBuilderUptime() {
                       min="1"
                       max="5"
                       value={energy}
-                      onChange={(e) => setEnergy(parseInt(e.target.value))}
+                      onChange={(e) => handleEnergyChange(parseInt(e.target.value))}
                       className="w-full h-2 bg-gray-800 rounded-full appearance-none cursor-pointer"
                       style={{
                         background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${(energy - 1) * 25}%, #1f2937 ${(energy - 1) * 25}%, #1f2937 100%)`

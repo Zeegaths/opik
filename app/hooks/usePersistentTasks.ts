@@ -29,25 +29,29 @@ export function usePersistentTasks() {
   }, [authenticated, ready]);
 
   const loadTasks = async () => {
-    setLoading(true);
-    try {
-      const userId = user?.id || 'anonymous';
-      const data = await api.getTasks(userId);
-      
-      const formattedTasks = data.map((t: any) => ({
-        id: Number(t.id),
-        text: t.title,
-        completed: t.completed,
-        hasBlocker: false,
-      }));
-      setTasks(formattedTasks);
-    } catch (error) {
-      console.error('Failed to load tasks:', error);
-      setTasks([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  setLoading(true);
+  try {
+    const userId = user?.id || 'anonymous';
+    const data = await api.getTasks(userId);
+    
+    console.log('📥 Loading tasks:', data);
+    
+    const formattedTasks = data.map((t: any) => ({
+      id: Number(t.id),
+      text: t.title,
+      completed: t.completed,
+      hasBlocker: t.hasBlocker || false, // CHANGED: use backend value
+    }));
+    setTasks(formattedTasks);
+    
+    console.log('✅ Tasks loaded:', formattedTasks);
+  } catch (error) {
+    console.error('❌ Failed to load tasks:', error);
+    setTasks([]);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const addTask = async (text: string) => {
     if (!authenticated) {
@@ -63,14 +67,14 @@ export function usePersistentTasks() {
 
     try {
       const userId = user?.id || 'anonymous';
-      
+
       const newTask = await api.createTask({
         userId,
         title: text,
         description: '',
         priority: 'medium'
       });
-      
+
       const formattedTask: Task = {
         id: Number(newTask.id),
         text: newTask.title,
@@ -86,31 +90,39 @@ export function usePersistentTasks() {
   };
 
   const updateTask = async (id: number, updates: Partial<Task>) => {
+    // Update local state first for immediate UI feedback
+    setTasks(tasks.map(t => t.id === id ? { ...t, ...updates } : t));
+
     if (!authenticated) {
-      setTasks(tasks.map(t => t.id === id ? { ...t, ...updates } : t));
       return;
     }
 
     try {
       const userId = user?.id || 'anonymous';
-      
+
       const backendUpdates: any = { userId };
       if (updates.text !== undefined) backendUpdates.title = updates.text;
       if (updates.completed !== undefined) backendUpdates.completed = updates.completed;
+      if (updates.hasBlocker !== undefined) backendUpdates.hasBlocker = updates.hasBlocker; // ADD THIS
+
+      console.log('🔄 Updating task:', id, backendUpdates);
 
       const updated = await api.updateTask(id.toString(), backendUpdates);
 
+      // Update again with server response
       const formattedTask: Task = {
         id: Number(updated.id),
         text: updated.title,
         completed: updated.completed,
-        hasBlocker: updates.hasBlocker || false,
+        hasBlocker: updated.hasBlocker || updates.hasBlocker || false,
       };
       setTasks(tasks.map(t => t.id === id ? formattedTask : t));
+
+      console.log('✅ Task updated:', formattedTask);
       return formattedTask;
     } catch (error) {
-      console.error('Failed to update task:', error);
-      setTasks(tasks.map(t => t.id === id ? { ...t, ...updates } : t));
+      console.error('❌ Failed to update task:', error);
+      // Keep the optimistic update if backend fails
     }
   };
 

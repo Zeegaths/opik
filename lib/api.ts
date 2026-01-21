@@ -73,19 +73,20 @@ export class ApiClient {
     return response.tasks;
   }
 
-  async updateTask(id: string, updates: { 
-    userId?: string;
-    title?: string;
-    completed?: boolean; 
-    description?: string;
-    priority?: string;
-  }) {
-    const response = await this.request<{ task: any }>(`/api/uptime/tasks/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    });
-    return response.task;
-  }
+async updateTask(id: string, updates: { 
+  userId?: string;
+  title?: string;
+  completed?: boolean; 
+  description?: string;
+  priority?: string;
+  hasBlocker?: boolean; // ✅ ADD THIS LINE
+}) {
+  const response = await this.request<{ task: any }>(`/api/uptime/tasks/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+  return response.task;
+}
 
   async deleteTask(id: string) {
     return this.request(`/api/uptime/tasks/${id}`, {
