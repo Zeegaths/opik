@@ -8,6 +8,7 @@ import { usePersistentTasks, useAutoSaveSession } from '~/hooks/usePersistentTas
 import { OpikTracer } from '~/hooks/opik-provider';
 import { useExtensionNotifications } from '~/hooks/useExtensionNotifications';
 import { useUptimeAnalysis } from '~/hooks/useUptimeAnalysis';
+import { FocusSession } from '~/components/FocusSession';
 
 // Define Task interface
 interface Task {
@@ -690,49 +691,19 @@ export default function MinimalBuilderUptime() {
                 </div>
               </div>
 
-              {/* Focus Time */}
-              <div className="group relative bg-gradient-to-br from-gray-900/80 to-gray-800/80 border border-gray-700/50 rounded-2xl p-5 md:p-6 backdrop-blur-sm hover:border-orange-500/50 transition-all duration-300 hover:shadow-xl hover:shadow-orange-500/10">
-                {focusSeconds >= 4800 && focusSeconds < 5400 && (
-                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full animate-pulse"></div>
-                )}
-                {focusSeconds >= 5400 && (
-                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                )}
-                <div className="absolute inset-0 bg-gradient-to-br from-orange-500/0 to-orange-500/0 group-hover:from-orange-500/5 group-hover:to-transparent rounded-2xl transition-all duration-300"></div>
-                <div className="relative">
-                  <div className="flex items-center gap-2 mb-4">
-                    <div className="text-xs font-semibold text-gray-400 tracking-wide uppercase">Focus Session</div>
-                    {focusSeconds >= 4800 && focusSeconds < 5400 && (
-                      <span className="text-xs text-yellow-400">• Break soon</span>
-                    )}
-                    {focusSeconds >= 5400 && (
-                      <span className="text-xs text-green-400">• Break recommended</span>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-5xl md:text-4xl font-black bg-gradient-to-r from-orange-400 to-cyan-400 bg-clip-text text-transparent">{formatTime(focusSeconds)}</span>
-                    </div>
-                    <button
-                      onClick={() => setIsTimerRunning(!isTimerRunning)}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-300 whitespace-nowrap ${isTimerRunning
-                        ? 'bg-gradient-to-r from-orange-500/20 to-red-500/20 text-orange-400 border border-orange-500/50 shadow-lg shadow-orange-500/20'
-                        : 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/20'
-                        }`}
-                    >
-                      {isTimerRunning ? '⏸ Pause' : '▶ Start'}
-                    </button>
-                  </div>
-                  {focusSeconds >= 5400 && (
-                    <button
-                      onClick={takeBreak}
-                      className="w-full px-4 py-2.5 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/50 rounded-xl text-sm font-semibold text-green-400 hover:from-green-500/30 hover:to-emerald-500/30 transition-all duration-300 hover:shadow-lg hover:shadow-green-500/20"
-                    >
-                      🌱 Take Break
-                    </button>
-                  )}
-                </div>
-              </div>
+              <FocusSession
+                userId={user?.id || 'anonymous'}
+                onWellnessLog={(minutes) => {
+                  if (authenticated && user?.id) {
+                    logWellness({
+                      userId: user.id,
+                      energyLevel: energy,
+                      focusQuality: Math.min(5, Math.round(minutes / 10)),
+                      taskId: 'focus_session'
+                    });
+                  }
+                }}
+              />
             </section>
           </div>
 
