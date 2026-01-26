@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const BACKEND_URL = import.meta.env.VITE_SHADE_AGENT_URL || 'http://localhost:3000';
+const BACKEND_URL = import.meta.env.OPENAI_API_KEY || 'http://localhost:3000';
 
 interface Task {
   id: number;

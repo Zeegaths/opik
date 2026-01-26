@@ -7,8 +7,7 @@ import useMetaMaskSmartAccount from '../hooks/useMetamaskSmartAccount';
 import { usePersistentTasks, useAutoSaveSession } from '~/hooks/usePersistentTasks';
 import { OpikTracer } from '~/hooks/opik-provider';
 import { useExtensionNotifications } from '~/hooks/useExtensionNotifications';
-// import { useUptimeAnalysis } from '~/hooks/useUptimeAnalysis';
-// const { analyzeUptime, isAnalyzing } = useUptimeAnalysis();
+import { useUptimeAnalysis } from '~/hooks/useUptimeAnalysis';
 
 // Define Task interface
 interface Task {
@@ -30,6 +29,8 @@ export default function MinimalBuilderUptime() {
   const { wallets } = useWallets();
   const userWallet = wallets[0];
   const walletAddress = userWallet?.address;
+  const { analyzeUptime, isAnalyzing } = useUptimeAnalysis();
+
   const isMetaMask = userWallet?.walletClientType === 'metamask' &&
     userWallet?.connectorType === 'injected';
 

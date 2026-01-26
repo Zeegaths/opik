@@ -1,38 +1,85 @@
-// server.js - COMPLETE VERSION with OpenAI + Opik
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { Opik } = require('opik');
 const OpenAI = require('openai');
 
 const app = express();
-app.use(cors());
+
+// ✅ PROPER CORS Configuration
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://scintillating-grace-production.up.railway.app',
+    /\.railway\.app$/  // Allow all Railway preview URLs
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id']
+}));
+
 app.use(express.json());
 
 console.log('🚀 Builder Uptime Server starting...');
 
-// Initialize Opik SDK
-const opikClient = new Opik({
-  projectName: 'builder-uptime'
-});
+// Initialize Opik SDK with error handling
+let opikClient = null;
+try {
+  const { Opik } = require('opik');
+  opikClient = new Opik({
+    projectName: 'builder-uptime'
+  });
+  console.log('✅ Opik SDK initialized');
+} catch (error) {
+  console.warn('⚠️ Opik SDK failed to initialize:', error.message);
+  console.warn('⚠️ Continuing without Opik logging...');
+}
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// ✅ FIXED: Initialize OpenAI client (optional)
+let openai = null;
+try {
+  if (process.env.OPENAI_API_KEY) {
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+    console.log('✅ OpenAI initialized');
+  } else {
+    console.warn('⚠️ OPENAI_API_KEY not set - AI features disabled');
+  }
+} catch (error) {
+  console.warn('⚠️ OpenAI failed to initialize:', error.message);
+}
 
 // In-memory storage
 const wellnessData = {};
 const chatHistory = {};
 const tasks = {};
 
+// Helper function to safely log to Opik
+function logToOpik(traceName, input, output, metadata) {
+  if (opikClient) {
+    try {
+      const trace = opikClient.trace({
+        name: traceName,
+        input,
+        output,
+        metadata
+      });
+      trace.end();
+      console.log(`✅ Opik: ${traceName} logged`);
+    } catch (error) {
+      console.warn(`⚠️ Opik logging failed for ${traceName}:`, error.message);
+    }
+  }
+}
+
 // ====== HEALTH CHECK ======
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    opikEnabled: true,
-    openaiEnabled: !!process.env.OPENAI_API_KEY
+    opikEnabled: !!opikClient,
+    openaiEnabled: !!openai
   });
 });
 
@@ -61,16 +108,12 @@ app.post('/api/log-wellness', async (req, res) => {
       burnoutRisk
     });
 
-    // Log to Opik
-    const trace = opikClient.trace({
-      name: 'wellness_intervention',
-      input: { energyLevel, focusQuality, userId, taskId },
-      output: { burnoutRisk, recommendation },
-      metadata: { userId, taskId }
-    });
-    trace.end();
-
-    console.log(`✅ Opik: wellness_intervention logged`);
+    // Log to Opik (safe)
+    logToOpik('wellness_intervention', 
+      { energyLevel, focusQuality, userId, taskId },
+      { burnoutRisk, recommendation },
+      { userId, taskId }
+    );
 
     res.json({ success: true, burnoutRisk, recommendation });
   } catch (error) {
@@ -102,6 +145,13 @@ app.post('/api/weekly-insights', async (req, res) => {
 // ====== CHAT ROUTES ======
 app.post('/api/chat', async (req, res) => {
   const { userId, message, context } = req.body;
+
+  // ✅ FIXED: Check if OpenAI is available
+  if (!openai) {
+    return res.status(503).json({ 
+      error: "AI chat features are currently unavailable. Please add OPENAI_API_KEY to environment variables." 
+    });
+  }
 
   try {
     // Get chat history for context
@@ -162,16 +212,11 @@ Be warm, supportive, and direct. Keep responses concise (2-3 sentences max). If 
       chatHistory[userId] = chatHistory[userId].slice(-50);
     }
 
-    // Log to Opik
-    const trace = opikClient.trace({
-      name: 'shade_agent_chat',
-      input: { message, context, historyLength: history.length },
-      output: { response, model: 'gpt-4o-mini' },
-      metadata: { userId, energy: context?.currentEnergy }
-    });
-    trace.end();
-
-    console.log(`✅ Opik: shade_agent_chat logged`);
+    logToOpik('shade_agent_chat',
+      { message, context, historyLength: history.length },
+      { response, model: 'gpt-4o-mini' },
+      { userId, energy: context?.currentEnergy }
+    );
 
     res.json({ message: response });
   } catch (error) {
@@ -196,15 +241,11 @@ app.post('/api/chat-analytics', async (req, res) => {
   const { userId, eventType, sessionDuration, messageCount, currentEnergy, metadata } = req.body;
   
   try {
-    const trace = opikClient.trace({
-      name: 'chat_analytics',
-      input: { userId, eventType, sessionDuration, messageCount, currentEnergy },
-      output: { tracked: true },
-      metadata: { ...metadata, userId }
-    });
-    trace.end();
-
-    console.log(`✅ Opik: chat_analytics logged`);
+    logToOpik('chat_analytics',
+      { userId, eventType, sessionDuration, messageCount, currentEnergy },
+      { tracked: true },
+      { ...metadata, userId }
+    );
     
     res.json({ success: true });
   } catch (error) {
@@ -216,6 +257,19 @@ app.post('/api/chat-analytics', async (req, res) => {
 // ====== UPTIME ANALYSIS ENDPOINT ======
 app.post('/api/analyze-uptime', async (req, res) => {
   const { userId, uptime, energy, tasks, focusMinutes, blockers } = req.body;
+
+  // ✅ FIXED: Provide fallback if OpenAI not available
+  if (!openai) {
+    const fallbackAnalysis = {
+      suggestion: uptime >= 70 
+        ? "You're maintaining good productivity! Keep up the momentum." 
+        : "Consider focusing on one task at a time to improve your flow.",
+      reasoning: "Basic productivity assessment based on uptime score.",
+      needsBreak: energy <= 2
+    };
+    
+    return res.json({ analysis: fallbackAnalysis });
+  }
 
   try {
     const userData = wellnessData[userId] || [];
@@ -256,16 +310,11 @@ Format as JSON: {"suggestion": "...", "reasoning": "...", "needsBreak": true/fal
 
     const analysis = JSON.parse(completion.choices[0].message.content);
 
-    // Log to Opik
-    const trace = opikClient.trace({
-      name: 'uptime_analysis',
-      input: { userId, uptime, energy, taskCount: tasks.length, focusMinutes },
-      output: { analysis, model: 'gpt-4o-mini' },
-      metadata: { userId, burnoutRisk: recentSessions[recentSessions.length - 1]?.burnoutRisk || 'UNKNOWN' }
-    });
-    trace.end();
-
-    console.log(`✅ Opik: uptime_analysis logged`);
+    logToOpik('uptime_analysis',
+      { userId, uptime, energy, taskCount: tasks.length, focusMinutes },
+      { analysis, model: 'gpt-4o-mini' },
+      { userId, burnoutRisk: recentSessions[recentSessions.length - 1]?.burnoutRisk || 'UNKNOWN' }
+    );
 
     res.json({ analysis });
   } catch (error) {
@@ -299,16 +348,11 @@ app.post('/api/uptime/tasks', async (req, res) => {
     if (!tasks[userId]) tasks[userId] = [];
     tasks[userId].push(task);
 
-    // Log to Opik
-    const trace = opikClient.trace({
-      name: 'task_created',
-      input: { userId, title, priority },
-      output: { taskId: task.id },
-      metadata: { userId }
-    });
-    trace.end();
-
-    console.log(`✅ Opik: task_created logged`);
+    logToOpik('task_created',
+      { userId, title, priority },
+      { taskId: task.id },
+      { userId }
+    );
 
     res.json({ task });
   } catch (error) {
@@ -376,16 +420,21 @@ app.delete('/api/uptime/tasks/:id', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-// Graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('Flushing Opik traces...');
-  await opikClient.flush();
+  console.log('Shutting down gracefully...');
+  if (opikClient) {
+    try {
+      await opikClient.flush();
+    } catch (error) {
+      console.warn('Error flushing Opik:', error.message);
+    }
+  }
   process.exit(0);
 });
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Builder Uptime Server running on port ${PORT}`);
-  console.log(`📊 Opik SDK: ENABLED ✅`);
-  console.log(`🤖 OpenAI: ${process.env.OPENAI_API_KEY ? 'ENABLED ✅' : 'DISABLED ⚠️'}`);
+  console.log(`📊 Opik SDK: ${opikClient ? 'ENABLED ✅' : 'DISABLED ⚠️'}`);
+  console.log(`🤖 OpenAI: ${openai ? 'ENABLED ✅' : 'DISABLED ⚠️'}`);
   console.log(`🌐 Health check: http://localhost:${PORT}/health`);
 });
