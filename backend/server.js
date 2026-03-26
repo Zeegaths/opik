@@ -3,7 +3,14 @@ const express = require('express');
 const cors = require('cors');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://opik-liard.vercel.app/'
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 let opik = null;
@@ -89,7 +96,7 @@ app.post('/api/log-wellness', async (req, res) => {
   const { energyLevel, focusQuality, userId, taskId } = req.body;
   let burnoutRisk = energyLevel <= 2 ? "HIGH" : energyLevel <= 4 ? "MEDIUM" : "LOW";
   let recommendation = burnoutRisk === "HIGH" ? "🚨 Take a 15-minute break." : burnoutRisk === "MEDIUM" ? "⚠️ Consider a short break." : "You're in the flow!";
-  
+
   const accuracy = calcBurnoutAccuracy(energyLevel, burnoutRisk);
 
   if (opik) {
@@ -113,7 +120,7 @@ app.post('/api/log-wellness', async (req, res) => {
 });
 
 app.post('/api/weekly-insights', async (req, res) => {
-  const { userId } = req.body;
+  const { userId, successUrl } = req.body;
   const data = wellnessData[userId] || [];
   const avg = data.length > 0 ? data.reduce((s, d) => s + d.energyLevel, 0) / data.length : 5;
   res.json({ weeklyAvgEnergy: avg.toFixed(1), totalSessions: data.length, burnoutRiskDays: data.filter(d => d.burnoutRisk === "HIGH").length });
@@ -121,14 +128,14 @@ app.post('/api/weekly-insights', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
   const { userId, message, context } = req.body;
-  
+
   const crisis = detectCrisisLanguage(message);
   const pii = detectAndRedactPII(message);
   const safeMsg = pii.redactedText;
 
   let response = "I'm here to support you. ";
   let type = "general";
-  
+
   if (crisis.hasCrisis) {
     response = "I hear you're going through something difficult. Support is available - please reach out to a crisis helpline or trusted person. 💙";
     type = "crisis_support";
@@ -159,7 +166,7 @@ app.post('/api/chat', async (req, res) => {
         output: { response, responseType: type },
         metadata: {
           safety: { crisisDetected: crisis.hasCrisis, piiDetected: pii.hasPII },
-          scores: { empathy: empathy/10, actionability: action/10, safety: safety/10, overall: quality/10 }
+          scores: { empathy: empathy / 10, actionability: action / 10, safety: safety / 10, overall: quality / 10 }
         },
         tags: ["chat", type, crisis.hasCrisis ? "crisis_flagged" : "normal"]
       });
@@ -196,7 +203,7 @@ app.post('/api/chat-analytics', async (req, res) => {
         name: "chat_analytics",
         input: { userId, eventType, sessionDuration, messageCount },
         output: { tracked: true },
-        metadata: { ...metadata, scores: { engagement: Math.min(1, messageCount/10) } },
+        metadata: { ...metadata, scores: { engagement: Math.min(1, messageCount / 10) } },
         tags: ["analytics", eventType]
       });
       trace.end();
@@ -293,6 +300,94 @@ app.get('/api/evaluation/summary', (req, res) => {
     totalTasks: Object.values(tasks).reduce((s, t) => s + t.length, 0),
     highBurnoutEvents: Object.values(wellnessData).flat().filter(d => d.burnoutRisk === "HIGH").length
   });
+});
+
+// ====== STRIMZ SUBSCRIPTION ======
+app.post('/api/subscription/create-ai-coach-session', async (req, res) => {
+  const { userId, successUrl } = req.body;
+
+
+  if (!userId) {
+    return res.status(400).json({ error: 'userId is required' });
+  }
+
+  try {
+    await fetch('https://strmzz.onrender.com').catch(() => { });
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const response = await fetch('https://strmzz.onrender.com/api/v1/payments/sessions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.STRIMZ_API_KEY}`
+      },
+
+      body: JSON.stringify({
+        type: 'subscription',
+        amount: 0.01,
+        currency: 'USDC',
+        subscription: { interval: 'monthly' },
+        successUrl: successUrl || `${process.env.APP_URL}?feature=ai-coach`,       
+        cancelUrl: `${process.env.APP_URL}?cancelled=true`,
+        reference: `ai_coach_${userId}`
+      }),
+
+      signal: AbortSignal.timeout(30000)
+    });
+
+    const session = await response.json();
+    console.log('🔍 Strimz raw response:', JSON.stringify(session, null, 2));
+    if (!response.ok) {
+      console.error('❌ Strimz error:', session);
+      return res.status(response.status).json({ error: session.message || 'Strimz session creation failed' });
+    }
+
+    // Log to Opik
+    if (opik) {
+      try {
+        const trace = opik.trace({
+          name: "subscription_session_created",
+          input: { userId, amount: 0.01, currency: 'USDC' },
+          output: { sessionId: session.data.id, checkoutUrl: session.data.checkoutUrl },
+          tags: ["subscription", "strimz"]
+        });
+        trace.end();
+        await opik.flush();
+        console.log(`✅ Subscription session created for ${userId}`);
+      } catch (e) { console.error('⚠️ Opik error:', e.message); }
+    }
+
+    res.json({ checkoutUrl: session.data.checkoutUrl, sessionId: session.data.id });
+
+  } catch (err) {
+    console.error('❌ Subscription error FULL:', err);
+    res.status(500).json({ error: err.message, stack: err.stack });
+  }
+});
+
+// Webhook - Strimz notifies you when payment succeeds
+app.post('/api/subscription/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const signature = req.headers['x-strimz-signature'];
+
+  try {
+    // TODO: verify signature with strimz-sdk when available
+    const event = JSON.parse(req.body);
+    console.log(`📨 Strimz webhook: ${event.type}`, event.data);
+
+    if (event.type === 'subscription.charged') {
+      console.log(`✅ Subscription renewed: ${event.data.reference}`);
+      // TODO: update DB when you add persistence
+    }
+
+    if (event.type === 'subscription.cancelled') {
+      console.log(`❌ Subscription cancelled: ${event.data.reference}`);
+    }
+
+    res.json({ received: true });
+  } catch (err) {
+    console.error('❌ Webhook error:', err.message);
+    res.status(400).json({ error: 'Invalid webhook payload' });
+  }
 });
 
 process.on('SIGTERM', async () => { if (opik) await opik.flush(); process.exit(0); });

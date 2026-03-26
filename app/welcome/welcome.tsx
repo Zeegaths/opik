@@ -53,7 +53,7 @@ export default function MinimalBuilderUptime() {
   const [showSmartAccountInfo, setShowSmartAccountInfo] = useState(false);
   const [showTestTransaction, setShowTestTransaction] = useState(false);
   const [testRecipient, setTestRecipient] = useState('');
-  const [testAmount, setTestAmount] = useState('0.001');
+  const [testAmount, setTestAmount] = useState('0.01');
 
   // Task State
   const [taskInput, setTaskInput] = useState('');
@@ -80,6 +80,30 @@ export default function MinimalBuilderUptime() {
   const [burnoutWarning, setBurnoutWarning] = useState<{ level: string; action: string } | null>(null);
   const { logWellness, isLoading: agentLoading } = useShadeAgent();
   const { sendNotification } = useExtensionNotifications();
+
+
+  const [showSubscribeModal, setShowSubscribeModal] = useState(false);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+
+  const [isSubscribed, setIsSubscribed] = useState(false);
+
+  // Re-check subscription whenever wallet connects
+  useEffect(() => {
+    if (!walletAddress) return;
+
+    const status = localStorage.getItem(`strimz_sub_${walletAddress}`);
+    const expiry = localStorage.getItem(`strimz_sub_expiry_${walletAddress}`);
+
+    if (status === 'active' && expiry && Date.now() < parseInt(expiry)) {
+      setIsSubscribed(true);
+    } else {
+      // Clean up expired subscription
+      localStorage.removeItem(`strimz_sub_${walletAddress}`);
+      localStorage.removeItem(`strimz_sub_expiry_${walletAddress}`);
+      setIsSubscribed(false);
+    }
+  }, [walletAddress]);
 
   useEffect(() => {
     if (energy <= 2) {
@@ -144,6 +168,38 @@ export default function MinimalBuilderUptime() {
     }
   };
 
+  // Handle return from Strimz checkout
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('feature') === 'ai-coach' && walletAddress) {
+      localStorage.setItem(`strimz_sub_${walletAddress}`, 'active');
+      localStorage.setItem(
+        `strimz_sub_expiry_${walletAddress}`,
+        (Date.now() + 30 * 24 * 60 * 60 * 1000).toString()
+      );
+      setIsSubscribed(true);
+      setShowSubscribeModal(false);  // 👈 close the modal
+      setShowChat(true);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    if (params.get('cancelled') === 'true') {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [walletAddress]);
+
+  // Check subscription expiry on wallet connect
+  useEffect(() => {
+    if (walletAddress) {
+      const expiry = localStorage.getItem(`strimz_sub_expiry_${walletAddress}`);
+      if (expiry && Date.now() > parseInt(expiry)) {
+        localStorage.removeItem(`strimz_sub_${walletAddress}`);
+        localStorage.removeItem(`strimz_sub_expiry_${walletAddress}`);
+        setIsSubscribed(false);
+      }
+    }
+  }, [walletAddress]);
+
   const handleAnalyzeUptime = async () => {
     if (!authenticated || !user?.id) return;
 
@@ -168,6 +224,41 @@ export default function MinimalBuilderUptime() {
     }
   };
 
+  const handleSubscribe = async () => {
+    if (!authenticated || !user?.id) {
+      alert('Please connect your wallet first.');
+      return;
+    }
+
+    setIsProcessingPayment(true);
+    setPaymentError(null);
+
+    try {
+      // Wake up Strimz first
+      await fetch('https://strmzz.onrender.com').catch(() => { });
+
+      // Small delay to let it fully wake
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      const res = await fetch('http://localhost:3000/api/subscription/create-ai-coach-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          successUrl: `${window.location.origin}/?feature=ai-coach`  // 👈 inside body, not fetch options
+        })
+      });
+
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      window.location.href = data.checkoutUrl;
+
+    } catch (err: any) {
+      setPaymentError(err?.message || 'Could not create payment session.');
+      setIsProcessingPayment(false);
+    }
+  };
   const toggleTask = async (id: number): Promise<void> => {
     const task = tasks.find(t => t.id === id);
     if (task) {
@@ -286,13 +377,12 @@ export default function MinimalBuilderUptime() {
 
           <div className="flex items-center gap-2">
 
-            {/* AI Coach Button */}
             {authenticated && (
               <button
-                onClick={() => setShowChat(true)}
+                onClick={() => isSubscribed ? setShowChat(true) : setShowSubscribeModal(true)}
                 className="px-3 md:px-4 py-1.5 md:py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/50 rounded-lg md:rounded-xl text-xs md:text-sm font-medium text-purple-400 hover:from-purple-500/30 hover:to-pink-500/30 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/20"
               >
-                💬 AI Coach
+                {isSubscribed ? '💬 AI Coach' : '🔒 AI Coach'}
               </button>
             )}
 
@@ -523,7 +613,7 @@ export default function MinimalBuilderUptime() {
                   type="text"
                   value={testAmount}
                   onChange={(e) => setTestAmount(e.target.value)}
-                  placeholder="0.001"
+                  placeholder="0.01"
                   className="w-full px-4 py-3 bg-black/50 border border-gray-700 rounded-xl focus:outline-none focus:border-cyan-500 text-sm"
                 />
               </div>
@@ -920,6 +1010,70 @@ export default function MinimalBuilderUptime() {
           currentEnergy={energy}
           onClose={() => setShowChat(false)}
         />
+      )}
+
+      {showSubscribeModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-gray-900 to-gray-800 border-2 border-purple-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl shadow-purple-500/20">
+
+            {/* Strimz branding */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-sm font-black text-white">S</div>
+                <div>
+                  <div className="text-xs text-gray-500">Powered by</div>
+                  <div className="text-sm font-bold text-purple-400">Strimz</div>
+                </div>
+              </div>
+              <button onClick={() => { setShowSubscribeModal(false); setPaymentError(null); }} className="text-gray-400 hover:text-white text-xl">✕</button>
+            </div>
+
+            {/* Plan details */}
+            <div className="text-center mb-6">
+              <div className="text-5xl mb-3">🤖</div>
+              <h3 className="text-2xl font-black text-white mb-1">AI Coach Access</h3>
+              <p className="text-gray-400 text-sm mb-4">Burnout prevention, productivity insights, and personalized coaching</p>
+
+              <div className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4 mb-5">
+                <div className="text-4xl font-black bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">0.01 USDC</div>
+                <div className="text-gray-400 text-sm">per month · cancel anytime</div>
+              </div>
+
+              <ul className="text-left text-sm text-gray-300 space-y-2 mb-2">
+                {[
+                  '💬 Unlimited AI coaching sessions',
+                  '🔥 Burnout risk detection',
+                  '📊 Weekly productivity reports',
+                  '🎯 Personalized focus strategies',
+                ].map((feature) => (
+                  <li key={feature} className="flex items-center gap-2">
+                    <span className="text-purple-400">✓</span> {feature}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Error */}
+            {paymentError && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-4 text-sm text-red-400">
+                {paymentError}
+              </div>
+            )}
+
+            {/* CTA */}
+            <button
+              onClick={handleSubscribe}
+              disabled={isProcessingPayment}
+              className="w-full py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-bold text-lg hover:from-purple-400 hover:to-pink-400 transition-all shadow-lg shadow-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isProcessingPayment ? '⏳ Redirecting to Strimz...' : '⚡ Subscribe with Wallet'}
+            </button>
+
+            <p className="text-center text-xs text-gray-600 mt-3">
+              Processed via Strimz · Payments settled in USDC on Base
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );
